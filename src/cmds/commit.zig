@@ -3,7 +3,7 @@ const c = @cImport(@cInclude("git2.h"));
 const git = @import("git.zig");
 
 pub const help =
-    \\usage: zagi commit -m <message> [-a] [--amend]
+    \\usage: git commit -m <message> [-a] [--amend]
     \\
     \\Create a commit from staged changes.
     \\

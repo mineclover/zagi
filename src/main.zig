@@ -93,21 +93,23 @@ fn printHelp(stdout: anytype) !void {
         \\zagi - git for agents
         \\
         \\usage: zagi <command> [args...]
+        \\usage: git <command> [args...] (when aliased)
         \\
         \\commands:
-        \\  status    Show working tree status (concise)
-        \\  log       Show commit history (concise)
-        \\  diff      Show changes (concise)
+        \\  status    Show working tree status
+        \\  log       Show commit history
+        \\  diff      Show changes
         \\  add       Stage files for commit
         \\  commit    Create a commit
-        \\  alias     Add zagi as a git alias to your shell
+        \\  alias     Create an alias to git
         \\
         \\options:
         \\  -h, --help     Show this help
         \\  -v, --version  Show version
-        \\  -g, --git      Pass command directly to git
+        \\  -g, --git      Git passthrough mode (e.g. git -g log)
         \\
-        \\Any unrecognized command is passed through to git.
+        \\Unrecognized commands are passed through to git.
+        \\
         \\
     , .{});
 }
@@ -185,7 +187,7 @@ fn printUsageHelp(stderr: anytype, cmd: Command) void {
         .log_cmd => log.help,
         .alias_cmd => alias.help,
         .diff_cmd => diff.help,
-        .other => "usage: zagi <command> [args...]\n",
+        .other => "usage: git <command> [args...]\n",
     };
 
     stderr.print("{s}", .{help_text}) catch {};

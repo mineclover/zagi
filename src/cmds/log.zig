@@ -3,14 +3,12 @@ const c = @cImport(@cInclude("git2.h"));
 const git = @import("git.zig");
 
 pub const help =
-    \\usage: zagi log [-n <count>]
+    \\usage: git log [-n <count>]
     \\
     \\Show commit history.
     \\
     \\Options:
     \\  -n <count>  Limit to n commits (default: 10)
-    \\
-    \\For full git output, use: zagi -g log
     \\
 ;
 

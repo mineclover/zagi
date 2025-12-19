@@ -3,7 +3,7 @@ const c = @cImport(@cInclude("git2.h"));
 const git = @import("git.zig");
 
 pub const help =
-    \\usage: zagi diff [--staged] [<commit>] [<commit>..<commit>] [-- <path>...]
+    \\usage: git diff [--staged] [<commit>] [<commit>..<commit>] [-- <path>...]
     \\
     \\Show changes in working tree, staging area, or between commits.
     \\
@@ -11,13 +11,13 @@ pub const help =
     \\  --staged    Show staged changes (what will be committed)
     \\
     \\Examples:
-    \\  zagi diff                    Show unstaged changes
-    \\  zagi diff --staged           Show staged changes
-    \\  zagi diff HEAD~2             Show changes since HEAD~2
-    \\  zagi diff HEAD~2..HEAD       Show changes between commits
-    \\  zagi diff main...feature     Show changes since branches diverged
-    \\  zagi diff -- src/main.ts     Show changes to specific file
-    \\  zagi diff HEAD~2 -- src/     Show changes in path since commit
+    \\  git diff                    Show unstaged changes
+    \\  git diff --staged           Show staged changes
+    \\  git diff HEAD~2             Show changes since HEAD~2
+    \\  git diff HEAD~2..HEAD       Show changes between commits
+    \\  git diff main...feature     Show changes since branches diverged
+    \\  git diff -- src/main.ts     Show changes to specific file
+    \\  git diff HEAD~2 -- src/     Show changes in path since commit
     \\
 ;
 

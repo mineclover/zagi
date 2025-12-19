@@ -3,7 +3,7 @@ const c = @cImport(@cInclude("git2.h"));
 const git = @import("git.zig");
 
 pub const help =
-    \\usage: zagi add <path>...
+    \\usage: git add <path>...
     \\
     \\Stage files for commit.
     \\
