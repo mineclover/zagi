@@ -18,8 +18,10 @@ pub fn run(allocator: std.mem.Allocator, args: [][:0]u8) (git.Error || error{Out
         if (std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help")) {
             stdout.print("{s}", .{help}) catch {};
             return;
+        } else if (std.mem.eql(u8, a, "-s") or std.mem.eql(u8, a, "--short")) {
+            // Already short format by default, ignore
         } else if (std.mem.startsWith(u8, a, "-")) {
-            // Any flag is unsupported (-s, --short, --porcelain, etc.)
+            // Other flags unsupported (--porcelain, etc.)
             return git.Error.UnsupportedFlag;
         } else {
             // Path arguments also unsupported
