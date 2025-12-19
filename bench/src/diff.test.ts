@@ -71,4 +71,171 @@ describe("zagi diff", () => {
     const result = runCommand(ZAGI_BIN, ["diff"]);
     expect(result).toBe("no changes\n");
   });
+
+  test("path filter shows only specified file", () => {
+    // Create another modified file
+    writeFileSync(resolve(REPO_DIR, "README.md"), "# Modified\n");
+
+    const result = runCommand(ZAGI_BIN, ["diff", "--", "src/main.ts"]);
+    expect(result).toContain("src/main.ts");
+    expect(result).not.toContain("README.md");
+  });
+
+  test("path filter with directory", () => {
+    // Modify a file outside src/
+    writeFileSync(resolve(REPO_DIR, "README.md"), "# Modified\n");
+
+    const result = runCommand(ZAGI_BIN, ["diff", "--", "src/"]);
+    expect(result).toContain("src/main.ts");
+    expect(result).not.toContain("README.md");
+  });
+
+  test("revision range shows changes between commits", () => {
+    // Commit the current changes first
+    execFileSync("git", ["add", "."], { cwd: REPO_DIR });
+    execFileSync("git", ["commit", "-m", "test commit"], { cwd: REPO_DIR });
+
+    // Now diff between previous and current
+    const result = runCommand(ZAGI_BIN, ["diff", "HEAD~1..HEAD"]);
+    expect(result).toContain("src/main.ts");
+  });
+
+  test("single revision shows changes since that commit", () => {
+    // Commit the current changes first
+    execFileSync("git", ["add", "."], { cwd: REPO_DIR });
+    execFileSync("git", ["commit", "-m", "test commit"], { cwd: REPO_DIR });
+
+    // Diff from previous commit to HEAD
+    const result = runCommand(ZAGI_BIN, ["diff", "HEAD~1"]);
+    expect(result).toContain("src/main.ts");
+  });
+
+  test("revision with path filter", () => {
+    // Modify README too
+    writeFileSync(resolve(REPO_DIR, "README.md"), "# Modified\n");
+
+    // Commit all changes
+    execFileSync("git", ["add", "."], { cwd: REPO_DIR });
+    execFileSync("git", ["commit", "-m", "test commit"], { cwd: REPO_DIR });
+
+    // Diff with path filter - should only show src/main.ts
+    const result = runCommand(ZAGI_BIN, [
+      "diff",
+      "HEAD~1..HEAD",
+      "--",
+      "src/main.ts",
+    ]);
+    expect(result).toContain("src/main.ts");
+    expect(result).not.toContain("README.md");
+  });
+
+  test("triple dot shows changes since branches diverged", () => {
+    // Create a branch from current state
+    execFileSync("git", ["checkout", "-b", "feature"], { cwd: REPO_DIR });
+
+    // Make a commit on feature branch
+    execFileSync("git", ["add", "."], { cwd: REPO_DIR });
+    execFileSync("git", ["commit", "-m", "feature commit"], { cwd: REPO_DIR });
+
+    // Go back to main and make different changes
+    execFileSync("git", ["checkout", "main"], { cwd: REPO_DIR });
+    writeFileSync(resolve(REPO_DIR, "README.md"), "# Main branch change\n");
+    execFileSync("git", ["add", "."], { cwd: REPO_DIR });
+    execFileSync("git", ["commit", "-m", "main commit"], { cwd: REPO_DIR });
+
+    // Triple dot should show feature branch changes (not main changes)
+    const result = runCommand(ZAGI_BIN, ["diff", "main...feature"]);
+    expect(result).toContain("src/main.ts"); // Feature branch change
+    expect(result).not.toContain("Main branch change"); // Not main branch change
+  });
+});
+
+describe("zagi diff output format", () => {
+  test("header format is file:line for single line change", () => {
+    // Create a file with a single line change
+    const filePath = resolve(REPO_DIR, "single.txt");
+    writeFileSync(filePath, "line1\nline2\nline3\n");
+    execFileSync("git", ["add", "single.txt"], { cwd: REPO_DIR });
+    execFileSync("git", ["commit", "-m", "add single.txt"], { cwd: REPO_DIR });
+
+    // Change only line 2
+    writeFileSync(filePath, "line1\nmodified\nline3\n");
+
+    const result = runCommand(ZAGI_BIN, ["diff"]);
+    // Should have format: single.txt:2
+    expect(result).toMatch(/single\.txt:\d+\n/);
+  });
+
+  test("header format is file:start-end for multi-line change", () => {
+    // Create a file
+    const filePath = resolve(REPO_DIR, "multi.txt");
+    writeFileSync(filePath, "line1\nline2\nline3\nline4\nline5\n");
+    execFileSync("git", ["add", "multi.txt"], { cwd: REPO_DIR });
+    execFileSync("git", ["commit", "-m", "add multi.txt"], { cwd: REPO_DIR });
+
+    // Change multiple consecutive lines
+    writeFileSync(filePath, "line1\nchanged2\nchanged3\nchanged4\nline5\n");
+
+    const result = runCommand(ZAGI_BIN, ["diff"]);
+    // Should have format: multi.txt:2-4
+    expect(result).toMatch(/multi\.txt:\d+-\d+\n/);
+  });
+
+  test("additions are prefixed with + and space", () => {
+    const result = runCommand(ZAGI_BIN, ["diff"]);
+    const lines = result.split("\n");
+    const additionLines = lines.filter((l) => l.startsWith("+"));
+
+    expect(additionLines.length).toBeGreaterThan(0);
+    // Each addition should be "+ content" (plus, space, content)
+    for (const line of additionLines) {
+      expect(line).toMatch(/^\+ .*/);
+    }
+  });
+
+  test("deletions are prefixed with - and space", () => {
+    // Remove a line to create a deletion
+    const filePath = resolve(REPO_DIR, "src/main.ts");
+    const content = readFileSync(filePath, "utf-8");
+    const lines = content.split("\n");
+    lines.splice(5, 1); // Remove line 6
+    writeFileSync(filePath, lines.join("\n"));
+
+    const result = runCommand(ZAGI_BIN, ["diff"]);
+    const deletionLines = result.split("\n").filter((l) => l.startsWith("-"));
+
+    expect(deletionLines.length).toBeGreaterThan(0);
+    // Each deletion should be "- content" (minus, space, content)
+    for (const line of deletionLines) {
+      expect(line).toMatch(/^- .*/);
+    }
+  });
+
+  test("multiple hunks show separate file:line headers", () => {
+    // Create a file with content
+    const filePath = resolve(REPO_DIR, "hunks.txt");
+    const lines = Array.from({ length: 20 }, (_, i) => `line${i + 1}`);
+    writeFileSync(filePath, lines.join("\n") + "\n");
+    execFileSync("git", ["add", "hunks.txt"], { cwd: REPO_DIR });
+    execFileSync("git", ["commit", "-m", "add hunks.txt"], { cwd: REPO_DIR });
+
+    // Change lines at beginning and end (creating separate hunks)
+    lines[1] = "modified2";
+    lines[18] = "modified19";
+    writeFileSync(filePath, lines.join("\n") + "\n");
+
+    const result = runCommand(ZAGI_BIN, ["diff", "--", "hunks.txt"]);
+    // Should have multiple file:line headers (one per hunk)
+    const headers = result.match(/hunks\.txt:\d+/g);
+    expect(headers).not.toBeNull();
+    expect(headers!.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("output has no git diff headers (---, +++, @@)", () => {
+    const result = runCommand(ZAGI_BIN, ["diff"]);
+    expect(result).not.toContain("---");
+    expect(result).not.toContain("+++");
+    expect(result).not.toContain("@@");
+    expect(result).not.toContain("diff --git");
+  });
 });

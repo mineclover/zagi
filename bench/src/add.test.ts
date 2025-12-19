@@ -66,12 +66,9 @@ describe("zagi add", () => {
     expect(git.output).toBe("");
   });
 
-  test("zagi add provides feedback while git add is silent", () => {
+  test("zagi add provides feedback", () => {
     const zagi = runCommand(ZAGI_BIN, ["add", "src/new-file.ts"]);
-    execFileSync("git", ["reset", "HEAD", "."], { cwd: REPO_DIR });
-    const git = runCommand("git", ["add", "src/new-file.ts"]);
 
     expect(zagi.output.length).toBeGreaterThan(0);
-    expect(git.output.length).toBe(0);
   });
 });

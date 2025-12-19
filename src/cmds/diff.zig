@@ -3,30 +3,129 @@ const c = @cImport(@cInclude("git2.h"));
 const git = @import("git.zig");
 
 pub const help =
-    \\usage: zagi diff [--staged]
+    \\usage: zagi diff [--staged] [<commit>] [<commit>..<commit>] [-- <path>...]
     \\
-    \\Show changes in working tree or staging area.
+    \\Show changes in working tree, staging area, or between commits.
     \\
     \\Options:
     \\  --staged    Show staged changes (what will be committed)
     \\
+    \\Examples:
+    \\  zagi diff                    Show unstaged changes
+    \\  zagi diff --staged           Show staged changes
+    \\  zagi diff HEAD~2             Show changes since HEAD~2
+    \\  zagi diff HEAD~2..HEAD       Show changes between commits
+    \\  zagi diff main...feature     Show changes since branches diverged
+    \\  zagi diff -- src/main.ts     Show changes to specific file
+    \\  zagi diff HEAD~2 -- src/     Show changes in path since commit
+    \\
 ;
 
 const DiffError = git.Error || error{OutOfMemory};
+
+fn resolveTree(repo: ?*c.git_repository, spec: []const u8) ?*c.git_tree {
+    // Create null-terminated string for libgit2
+    var buf: [256]u8 = undefined;
+    if (spec.len >= buf.len) return null;
+    @memcpy(buf[0..spec.len], spec);
+    buf[spec.len] = 0;
+
+    var obj: ?*c.git_object = null;
+    if (c.git_revparse_single(&obj, repo, &buf) < 0) {
+        return null;
+    }
+
+    // Peel to tree
+    var tree: ?*c.git_tree = null;
+    if (c.git_object_peel(@ptrCast(&tree), obj, c.GIT_OBJECT_TREE) < 0) {
+        c.git_object_free(obj);
+        return null;
+    }
+    c.git_object_free(obj);
+    return tree;
+}
+
+fn resolveCommit(repo: ?*c.git_repository, spec: []const u8) ?*c.git_commit {
+    // Create null-terminated string for libgit2
+    var buf: [256]u8 = undefined;
+    if (spec.len >= buf.len) return null;
+    @memcpy(buf[0..spec.len], spec);
+    buf[spec.len] = 0;
+
+    var obj: ?*c.git_object = null;
+    if (c.git_revparse_single(&obj, repo, &buf) < 0) {
+        return null;
+    }
+
+    // Peel to commit
+    var commit: ?*c.git_commit = null;
+    if (c.git_object_peel(@ptrCast(&commit), obj, c.GIT_OBJECT_COMMIT) < 0) {
+        c.git_object_free(obj);
+        return null;
+    }
+    c.git_object_free(obj);
+    return commit;
+}
+
+fn getMergeBaseTree(repo: ?*c.git_repository, spec1: []const u8, spec2: []const u8) ?*c.git_tree {
+    const commit1 = resolveCommit(repo, spec1) orelse return null;
+    defer c.git_commit_free(commit1);
+
+    const commit2 = resolveCommit(repo, spec2) orelse return null;
+    defer c.git_commit_free(commit2);
+
+    var merge_base_oid: c.git_oid = undefined;
+    if (c.git_merge_base(&merge_base_oid, repo, c.git_commit_id(commit1), c.git_commit_id(commit2)) < 0) {
+        return null;
+    }
+
+    var merge_base_commit: ?*c.git_commit = null;
+    if (c.git_commit_lookup(&merge_base_commit, repo, &merge_base_oid) < 0) {
+        return null;
+    }
+    defer c.git_commit_free(merge_base_commit);
+
+    var tree: ?*c.git_tree = null;
+    if (c.git_commit_tree(&tree, merge_base_commit) < 0) {
+        return null;
+    }
+    return tree;
+}
+
+const MAX_PATHSPECS = 16;
 
 pub fn run(_: std.mem.Allocator, args: [][:0]u8) DiffError!void {
     const stdout = std.fs.File.stdout().deprecatedWriter();
 
     // Parse args
     var staged = false;
+    var rev_spec: ?[]const u8 = null;
+    var pathspecs: [MAX_PATHSPECS][*c]u8 = undefined;
+    var pathspec_count: usize = 0;
+    var after_double_dash = false;
 
     for (args[2..]) |arg| {
         const a = std.mem.sliceTo(arg, 0);
-        if (std.mem.eql(u8, a, "--staged") or std.mem.eql(u8, a, "--cached")) {
+
+        if (after_double_dash) {
+            // Everything after -- is a path
+            if (pathspec_count < MAX_PATHSPECS) {
+                pathspecs[pathspec_count] = @constCast(arg.ptr);
+                pathspec_count += 1;
+            }
+            continue;
+        }
+
+        if (std.mem.eql(u8, a, "--")) {
+            after_double_dash = true;
+        } else if (std.mem.eql(u8, a, "--staged") or std.mem.eql(u8, a, "--cached")) {
             staged = true;
         } else if (std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help")) {
             stdout.print("{s}", .{help}) catch {};
             return;
+        } else if (!std.mem.startsWith(u8, a, "-")) {
+            // Non-flag argument is a revision spec
+            rev_spec = a;
         }
     }
 
@@ -48,9 +147,38 @@ pub fn run(_: std.mem.Allocator, args: [][:0]u8) DiffError!void {
     _ = c.git_diff_options_init(&diff_opts, c.GIT_DIFF_OPTIONS_VERSION);
     diff_opts.context_lines = 0; // No context lines - agent knows the file
 
+    // Set up pathspec filtering if paths were provided
+    if (pathspec_count > 0) {
+        diff_opts.pathspec.strings = &pathspecs;
+        diff_opts.pathspec.count = pathspec_count;
+    }
+
     var diff: ?*c.git_diff = null;
 
-    if (staged) {
+    if (rev_spec) |spec| {
+        // Diff between commits (e.g., HEAD~2..HEAD, HEAD~2, or main...feature)
+        var old_tree: ?*c.git_tree = null;
+        var new_tree: ?*c.git_tree = null;
+        defer if (old_tree != null) c.git_tree_free(old_tree);
+        defer if (new_tree != null) c.git_tree_free(new_tree);
+
+        const parsed = parseRevSpec(spec);
+        const new_spec = parsed.new orelse "HEAD";
+
+        if (parsed.triple_dot) {
+            // Triple dot: diff from merge-base to new
+            old_tree = getMergeBaseTree(repo, parsed.old, new_spec) orelse return git.Error.RevwalkFailed;
+            new_tree = resolveTree(repo, new_spec) orelse return git.Error.RevwalkFailed;
+        } else {
+            // Double dot or single revision
+            old_tree = resolveTree(repo, parsed.old) orelse return git.Error.RevwalkFailed;
+            new_tree = resolveTree(repo, new_spec) orelse return git.Error.RevwalkFailed;
+        }
+
+        if (c.git_diff_tree_to_tree(&diff, repo, old_tree, new_tree, &diff_opts) < 0) {
+            return git.Error.StatusFailed;
+        }
+    } else if (staged) {
         // Diff HEAD to index (staged changes)
         var head_commit: ?*c.git_commit = null;
         var head_tree: ?*c.git_tree = null;
@@ -186,6 +314,32 @@ pub fn formatNoChanges(writer: anytype) !void {
     try writer.print("no changes\n", .{});
 }
 
+/// Parse a revision spec like "HEAD~2..HEAD" or "main...feature" into parts.
+/// Returns null for new if it's a single revision (diff to HEAD).
+/// triple_dot indicates merge-base semantics (changes since diverged).
+pub fn parseRevSpec(spec: []const u8) struct { old: []const u8, new: ?[]const u8, triple_dot: bool } {
+    // Check for triple dot first (must check before double dot)
+    if (std.mem.indexOf(u8, spec, "...")) |dot_pos| {
+        return .{
+            .old = spec[0..dot_pos],
+            .new = spec[dot_pos + 3 ..],
+            .triple_dot = true,
+        };
+    } else if (std.mem.indexOf(u8, spec, "..")) |dot_pos| {
+        return .{
+            .old = spec[0..dot_pos],
+            .new = spec[dot_pos + 2 ..],
+            .triple_dot = false,
+        };
+    } else {
+        return .{
+            .old = spec,
+            .new = null,
+            .triple_dot = false,
+        };
+    }
+}
+
 // Tests
 const testing = std.testing;
 
@@ -259,4 +413,62 @@ test "formatNoChanges" {
     try formatNoChanges(output.writer());
 
     try testing.expectEqualStrings("no changes\n", output.items);
+}
+
+test "parseRevSpec with range HEAD~2..HEAD" {
+    const result = parseRevSpec("HEAD~2..HEAD");
+    try testing.expectEqualStrings("HEAD~2", result.old);
+    try testing.expectEqualStrings("HEAD", result.new.?);
+    try testing.expect(!result.triple_dot);
+}
+
+test "parseRevSpec with range main..feature" {
+    const result = parseRevSpec("main..feature");
+    try testing.expectEqualStrings("main", result.old);
+    try testing.expectEqualStrings("feature", result.new.?);
+    try testing.expect(!result.triple_dot);
+}
+
+test "parseRevSpec single revision" {
+    const result = parseRevSpec("HEAD~5");
+    try testing.expectEqualStrings("HEAD~5", result.old);
+    try testing.expect(result.new == null);
+    try testing.expect(!result.triple_dot);
+}
+
+test "parseRevSpec with commit hash" {
+    const result = parseRevSpec("abc123");
+    try testing.expectEqualStrings("abc123", result.old);
+    try testing.expect(result.new == null);
+    try testing.expect(!result.triple_dot);
+}
+
+test "parseRevSpec with hash range" {
+    const result = parseRevSpec("abc123..def456");
+    try testing.expectEqualStrings("abc123", result.old);
+    try testing.expectEqualStrings("def456", result.new.?);
+    try testing.expect(!result.triple_dot);
+}
+
+test "parseRevSpec with triple dot main...feature" {
+    const result = parseRevSpec("main...feature");
+    try testing.expectEqualStrings("main", result.old);
+    try testing.expectEqualStrings("feature", result.new.?);
+    try testing.expect(result.triple_dot);
+}
+
+test "parseRevSpec with triple dot HEAD~5...HEAD" {
+    const result = parseRevSpec("HEAD~5...HEAD");
+    try testing.expectEqualStrings("HEAD~5", result.old);
+    try testing.expectEqualStrings("HEAD", result.new.?);
+    try testing.expect(result.triple_dot);
+}
+
+test "parseRevSpec distinguishes double and triple dots" {
+    const double = parseRevSpec("a..b");
+    const triple = parseRevSpec("a...b");
+    try testing.expect(!double.triple_dot);
+    try testing.expect(triple.triple_dot);
+    try testing.expectEqualStrings("b", double.new.?);
+    try testing.expectEqualStrings("b", triple.new.?);
 }
