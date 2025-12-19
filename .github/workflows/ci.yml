@@ -16,7 +16,7 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v1
         with:
-          version: 0.14.0
+          version: 0.15.0
 
       - name: Build
         run: zig build
@@ -33,20 +33,18 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v1
         with:
-          version: 0.14.0
+          version: 0.15.0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Build zagi
         run: zig build -Doptimize=ReleaseFast
 
       - name: Install bench dependencies
         working-directory: bench
-        run: npm install
+        run: bun install
 
       - name: Run integration tests
         working-directory: bench
-        run: npm test
+        run: bun run test
