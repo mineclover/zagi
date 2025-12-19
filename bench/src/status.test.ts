@@ -57,3 +57,39 @@ describe("zagi status", () => {
     expect(zagiHasUntracked).toBe(gitHasUntracked);
   });
 });
+
+describe("zagi status path filtering", () => {
+  test("filters by specific file path", () => {
+    const all = runCommand(ZAGI_BIN, ["status"]);
+    const filtered = runCommand(ZAGI_BIN, ["status", "src/main.ts"]);
+
+    // Both should show the modified file
+    expect(all).toContain("src/main.ts");
+    expect(filtered).toContain("src/main.ts");
+  });
+
+  test("filters by directory path", () => {
+    const result = runCommand(ZAGI_BIN, ["status", "src/"]);
+    expect(result).toContain("src/main.ts");
+  });
+
+  test("shows nothing when path has no changes", () => {
+    // Create and commit a file, then check status for it
+    execFileSync("git", ["checkout", "--", "src/main.ts"], { cwd: REPO_DIR });
+
+    const result = runCommand(ZAGI_BIN, ["status", "src/main.ts"]);
+    expect(result).toContain("nothing to commit");
+  });
+
+  test("filters out files not matching path", () => {
+    // Check status for a path that doesn't have changes
+    const result = runCommand(ZAGI_BIN, ["status", "nonexistent/"]);
+    expect(result).toContain("nothing to commit");
+  });
+
+  test("multiple paths work", () => {
+    const result = runCommand(ZAGI_BIN, ["status", "src/", "README.md"]);
+    // Should show src/main.ts (modified in fixture)
+    expect(result).toContain("src/main.ts");
+  });
+});

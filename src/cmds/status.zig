@@ -3,16 +3,26 @@ const c = @cImport(@cInclude("git2.h"));
 const git = @import("git.zig");
 
 pub const help =
-    \\usage: git status
+    \\usage: git status [<path>...]
     \\
     \\Show working tree status.
     \\
+    \\Examples:
+    \\  git status              Show all changes
+    \\  git status src/         Show changes in src/ directory
+    \\  git status *.ts         Show changes to TypeScript files
+    \\
 ;
+
+const MAX_PATHSPECS = 16;
 
 pub fn run(allocator: std.mem.Allocator, args: [][:0]u8) (git.Error || error{OutOfMemory})!void {
     const stdout = std.fs.File.stdout().deprecatedWriter();
 
-    // Check for unsupported flags
+    // Parse arguments
+    var pathspecs: [MAX_PATHSPECS][*c]u8 = undefined;
+    var pathspec_count: usize = 0;
+
     for (args[2..]) |arg| {
         const a = std.mem.sliceTo(arg, 0);
         if (std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help")) {
@@ -20,12 +30,17 @@ pub fn run(allocator: std.mem.Allocator, args: [][:0]u8) (git.Error || error{Out
             return;
         } else if (std.mem.eql(u8, a, "-s") or std.mem.eql(u8, a, "--short")) {
             // Already short format by default, ignore
+        } else if (std.mem.eql(u8, a, "-b") or std.mem.eql(u8, a, "--branch")) {
+            // Already show branch by default, ignore
         } else if (std.mem.startsWith(u8, a, "-")) {
             // Other flags unsupported (--porcelain, etc.)
             return git.Error.UnsupportedFlag;
         } else {
-            // Path arguments also unsupported
-            return git.Error.UnsupportedFlag;
+            // Path argument
+            if (pathspec_count < MAX_PATHSPECS) {
+                pathspecs[pathspec_count] = @constCast(arg.ptr);
+                pathspec_count += 1;
+            }
         }
     }
 
@@ -93,6 +108,12 @@ pub fn run(allocator: std.mem.Allocator, args: [][:0]u8) (git.Error || error{Out
     opts.flags = c.GIT_STATUS_OPT_INCLUDE_UNTRACKED |
         c.GIT_STATUS_OPT_RENAMES_HEAD_TO_INDEX |
         c.GIT_STATUS_OPT_SORT_CASE_SENSITIVELY;
+
+    // Set up pathspec filtering if paths were provided
+    if (pathspec_count > 0) {
+        opts.pathspec.strings = &pathspecs;
+        opts.pathspec.count = pathspec_count;
+    }
 
     if (c.git_status_list_new(&status_list, repo, &opts) < 0) {
         return git.Error.StatusFailed;
