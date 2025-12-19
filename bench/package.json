@@ -1,0 +1,16 @@
+{
+  "name": "zagi-bench",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "bench": "vitest bench",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "vitest": "^4.0.16"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
