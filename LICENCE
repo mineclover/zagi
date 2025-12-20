@@ -1,0 +1,52 @@
+zagi is MIT licensed, with some parts under different licenses.
+
+## zagi
+
+MIT License
+
+Copyright (c) 2025 Matt Carey
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Linked Libraries
+
+zagi statically links against the following libraries:
+
+### libgit2
+
+libgit2 is Copyright (C) the libgit2 contributors.
+
+libgit2 is licensed under GPLv2 with a linking exception:
+
+> In addition to the permissions in the GNU General Public License,
+> the authors give you unlimited permission to link the compiled
+> version of this library into combinations with other programs,
+> and to distribute those combinations without any restriction
+> coming from the use of this file. (The General Public License
+> restrictions do apply in other respects; for example, they cover
+> modification of the file, and distribution when not linked into
+> a combined executable.)
+
+The full libgit2 license is available at:
+https://github.com/libgit2/libgit2/blob/main/COPYING
+
+If you modify libgit2 itself, you must distribute the source code of your
+modifications under the terms of the GPLv2.
