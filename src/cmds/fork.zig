@@ -105,8 +105,65 @@ pub fn run(allocator: std.mem.Allocator, args: [][:0]u8) git.Error!void {
     }
 }
 
+fn validateForkName(repo: ?*c.git_repository, name: []const u8, stdout: anytype) !void {
+    // Check for empty name or invalid characters
+    if (hasInvalidChars(name)) {
+        if (name.len == 0) {
+            stdout.print("error: fork name cannot be empty\n", .{}) catch {};
+        } else {
+            stdout.print("error: fork name cannot contain '/', '\\', '..', or start with '.' or '-'\n", .{}) catch {};
+        }
+        return git.Error.UsageError;
+    }
+
+    // Check if resulting path would be too long
+    const workdir = c.git_repository_workdir(repo);
+    if (workdir != null) {
+        const workdir_slice = std.mem.sliceTo(workdir, 0);
+        // .forks/ = 7 chars, need some headroom for files inside
+        const total_len = workdir_slice.len + 7 + name.len;
+        if (total_len > std.fs.max_path_bytes - 256) {
+            stdout.print("error: fork name too long, would exceed path limit\n", .{}) catch {};
+            return git.Error.UsageError;
+        }
+    }
+
+    // Check if a branch with this name already exists
+    var branch_name_buf: [512]u8 = undefined;
+    const branch_name = std.fmt.bufPrint(&branch_name_buf, "refs/heads/{s}", .{name}) catch return git.Error.WriteFailed;
+
+    var branch_name_z: [512]u8 = undefined;
+    @memcpy(branch_name_z[0..branch_name.len], branch_name);
+    branch_name_z[branch_name.len] = 0;
+
+    var branch_ref: ?*c.git_reference = null;
+    if (c.git_reference_lookup(&branch_ref, repo, &branch_name_z) == 0) {
+        // Branch exists - check if it's a worktree branch (which is ok to reuse)
+        c.git_reference_free(branch_ref);
+
+        // Check if worktree with this name exists
+        var name_z: [256]u8 = undefined;
+        @memcpy(name_z[0..name.len], name);
+        name_z[name.len] = 0;
+
+        var worktree: ?*c.git_worktree = null;
+        if (c.git_worktree_lookup(&worktree, repo, &name_z) == 0) {
+            c.git_worktree_free(worktree);
+            stdout.print("error: fork '{s}' already exists\n", .{name}) catch {};
+            return git.Error.UsageError;
+        }
+
+        // Branch exists but no worktree - it's a regular branch
+        stdout.print("error: branch '{s}' already exists, choose a different fork name\n", .{name}) catch {};
+        return git.Error.UsageError;
+    }
+}
+
 fn createFork(allocator: std.mem.Allocator, repo: ?*c.git_repository, name: []const u8, stdout: anytype) !void {
     _ = allocator;
+
+    // Validate fork name first
+    try validateForkName(repo, name, stdout);
 
     // Get repo root path
     const workdir = c.git_repository_workdir(repo);
@@ -329,8 +386,32 @@ fn getCommitsAhead(allocator: std.mem.Allocator, repo: ?*c.git_repository, fork_
     return ahead;
 }
 
+fn checkNotDetachedHead(repo: ?*c.git_repository, stdout: anytype) !void {
+    if (c.git_repository_head_detached(repo) != 0) {
+        stdout.print("error: cannot pick/promote in detached HEAD state\n", .{}) catch {};
+        stdout.print("hint: checkout a branch first: git checkout <branch>\n", .{}) catch {};
+        return git.Error.UsageError;
+    }
+}
+
 fn pickFork(allocator: std.mem.Allocator, repo: ?*c.git_repository, name: []const u8, stdout: anytype) !void {
     _ = allocator;
+
+    // Check for detached HEAD
+    try checkNotDetachedHead(repo, stdout);
+
+    // Check if we're already in a merge state
+    const state = c.git_repository_state(repo);
+    if (state == c.GIT_REPOSITORY_STATE_MERGE) {
+        stdout.print("error: a merge is already in progress\n", .{}) catch {};
+        stdout.print("\nTo complete the previous merge:\n", .{}) catch {};
+        stdout.print("  1. Resolve any conflicts\n", .{}) catch {};
+        stdout.print("  2. git add <resolved files>\n", .{}) catch {};
+        stdout.print("  3. git commit\n", .{}) catch {};
+        stdout.print("\nTo abort the previous merge:\n", .{}) catch {};
+        stdout.print("  git merge --abort\n", .{}) catch {};
+        return git.Error.UsageError;
+    }
 
     // Get the fork's branch ref
     var branch_name_buf: [512]u8 = undefined;
@@ -451,7 +532,12 @@ fn pickFork(allocator: std.mem.Allocator, repo: ?*c.git_repository, name: []cons
 
         if (c.git_index_has_conflicts(index) != 0) {
             stdout.print("picked: {s} (conflicts)\n", .{name}) catch {};
-            stdout.print("  resolve conflicts and commit manually\n", .{}) catch {};
+            stdout.print("\nTo complete the merge:\n", .{}) catch {};
+            stdout.print("  1. Edit conflicting files to resolve conflicts\n", .{}) catch {};
+            stdout.print("  2. git add <resolved files>\n", .{}) catch {};
+            stdout.print("  3. git commit\n", .{}) catch {};
+            stdout.print("\nTo abort the merge:\n", .{}) catch {};
+            stdout.print("  git merge --abort\n", .{}) catch {};
             return;
         }
 
@@ -538,6 +624,9 @@ fn pickFork(allocator: std.mem.Allocator, repo: ?*c.git_repository, name: []cons
 }
 
 fn promoteFork(allocator: std.mem.Allocator, repo: ?*c.git_repository, name: []const u8, stdout: anytype) !void {
+    // Check for detached HEAD
+    try checkNotDetachedHead(repo, stdout);
+
     // Get commits ahead count first
     const ahead = getCommitsAhead(allocator, repo, name) catch 0;
 
@@ -808,4 +897,55 @@ fn deleteForkSilent(repo: ?*c.git_repository, name: []const u8) void {
         _ = c.git_reference_delete(branch_ref);
         c.git_reference_free(branch_ref);
     }
+}
+
+/// Checks if a fork name has invalid characters (pure function, no repo needed)
+/// Returns true if the name is invalid
+fn hasInvalidChars(name: []const u8) bool {
+    if (name.len == 0) return true;
+    if (std.mem.indexOf(u8, name, "/") != null) return true;
+    if (std.mem.indexOf(u8, name, "\\") != null) return true;
+    if (std.mem.indexOf(u8, name, "..") != null) return true;
+    if (std.mem.startsWith(u8, name, ".")) return true;
+    if (std.mem.startsWith(u8, name, "-")) return true;
+    return false;
+}
+
+const testing = std.testing;
+
+test "hasInvalidChars rejects empty name" {
+    try testing.expect(hasInvalidChars(""));
+}
+
+test "hasInvalidChars rejects forward slash" {
+    try testing.expect(hasInvalidChars("my/fork"));
+    try testing.expect(hasInvalidChars("nested/path/fork"));
+}
+
+test "hasInvalidChars rejects backslash" {
+    try testing.expect(hasInvalidChars("my\\fork"));
+}
+
+test "hasInvalidChars rejects path traversal" {
+    try testing.expect(hasInvalidChars(".."));
+    try testing.expect(hasInvalidChars("../escape"));
+    try testing.expect(hasInvalidChars("foo/../bar"));
+}
+
+test "hasInvalidChars rejects names starting with dot" {
+    try testing.expect(hasInvalidChars(".hidden"));
+    try testing.expect(hasInvalidChars(".git"));
+}
+
+test "hasInvalidChars rejects names starting with dash" {
+    try testing.expect(hasInvalidChars("-flag"));
+    try testing.expect(hasInvalidChars("--double-dash"));
+}
+
+test "hasInvalidChars accepts valid names" {
+    try testing.expect(!hasInvalidChars("feature"));
+    try testing.expect(!hasInvalidChars("my-feature"));
+    try testing.expect(!hasInvalidChars("feature_branch"));
+    try testing.expect(!hasInvalidChars("v1.0.0"));
+    try testing.expect(!hasInvalidChars("experiment123"));
 }

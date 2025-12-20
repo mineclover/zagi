@@ -458,3 +458,155 @@ describe("git fork --help", () => {
     expect(result.output).toContain("--delete-all");
   });
 });
+
+describe("git fork validation", () => {
+  test("rejects empty fork name", () => {
+    const result = runCommand(ZAGI_BIN, ["fork", ""], undefined, true);
+
+    expect(result.output).toContain("fork name cannot be empty");
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("rejects fork name with slash", () => {
+    const result = runCommand(
+      ZAGI_BIN,
+      ["fork", "my/nested/fork"],
+      undefined,
+      true
+    );
+
+    expect(result.output).toContain("cannot contain");
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("rejects fork name starting with dot", () => {
+    const result = runCommand(ZAGI_BIN, ["fork", ".hidden"], undefined, true);
+
+    expect(result.output).toContain("cannot contain");
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("rejects fork name with path traversal", () => {
+    const result = runCommand(
+      ZAGI_BIN,
+      ["fork", "../../escape"],
+      undefined,
+      true
+    );
+
+    expect(result.output).toContain("cannot contain");
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("rejects fork name matching existing branch", () => {
+    const result = runCommand(ZAGI_BIN, ["fork", "main"], undefined, true);
+
+    expect(result.output).toContain("branch 'main' already exists");
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("rejects creating duplicate fork", () => {
+    runCommand(ZAGI_BIN, ["fork", "existing"]);
+
+    const result = runCommand(ZAGI_BIN, ["fork", "existing"], undefined, true);
+
+    expect(result.output).toContain("already exists");
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("--pick errors in detached HEAD state", () => {
+    runCommand(ZAGI_BIN, ["fork", "test-fork"]);
+
+    // Detach HEAD
+    execFileSync("git", ["checkout", "HEAD~0"], { cwd: REPO_DIR });
+
+    const result = runCommand(
+      ZAGI_BIN,
+      ["fork", "--pick", "test-fork"],
+      undefined,
+      true
+    );
+
+    expect(result.output).toContain("detached HEAD");
+    expect(result.output).toContain("checkout a branch");
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("--promote errors in detached HEAD state", () => {
+    runCommand(ZAGI_BIN, ["fork", "test-fork"]);
+
+    // Detach HEAD
+    execFileSync("git", ["checkout", "HEAD~0"], { cwd: REPO_DIR });
+
+    const result = runCommand(
+      ZAGI_BIN,
+      ["fork", "--promote", "test-fork"],
+      undefined,
+      true
+    );
+
+    expect(result.output).toContain("detached HEAD");
+    expect(result.output).toContain("checkout a branch");
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("--pick shows conflict resolution hints", () => {
+    runCommand(ZAGI_BIN, ["fork", "conflict"]);
+
+    // Make conflicting changes
+    const forkDir = resolve(REPO_DIR, ".forks/conflict");
+    writeFileSync(resolve(forkDir, "file.txt"), "fork version\n");
+    execFileSync("git", ["add", "."], { cwd: forkDir });
+    execFileSync("git", ["commit", "-m", "Fork change"], { cwd: forkDir });
+
+    writeFileSync(resolve(REPO_DIR, "file.txt"), "base version\n");
+    execFileSync("git", ["add", "."], { cwd: REPO_DIR });
+    execFileSync("git", ["commit", "-m", "Base change"], { cwd: REPO_DIR });
+
+    const result = runCommand(ZAGI_BIN, ["fork", "--pick", "conflict"]);
+
+    expect(result.output).toContain("conflicts");
+    expect(result.output).toContain("git add");
+    expect(result.output).toContain("git commit");
+    expect(result.output).toContain("git merge --abort");
+  });
+
+  test("--pick errors when merge already in progress", () => {
+    runCommand(ZAGI_BIN, ["fork", "conflict"]);
+
+    // Create a conflict situation
+    const forkDir = resolve(REPO_DIR, ".forks/conflict");
+    writeFileSync(resolve(forkDir, "file.txt"), "fork version\n");
+    execFileSync("git", ["add", "."], { cwd: forkDir });
+    execFileSync("git", ["commit", "-m", "Fork change"], { cwd: forkDir });
+
+    writeFileSync(resolve(REPO_DIR, "file.txt"), "base version\n");
+    execFileSync("git", ["add", "."], { cwd: REPO_DIR });
+    execFileSync("git", ["commit", "-m", "Base change"], { cwd: REPO_DIR });
+
+    // First pick creates merge state
+    runCommand(ZAGI_BIN, ["fork", "--pick", "conflict"]);
+
+    // Second pick should error
+    const result = runCommand(
+      ZAGI_BIN,
+      ["fork", "--pick", "conflict"],
+      undefined,
+      true
+    );
+
+    expect(result.output).toContain("merge is already in progress");
+    expect(result.output).toContain("git merge --abort");
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("rejects fork name that would exceed path limit", () => {
+    // Create a name that's very long (should exceed path limit with workdir)
+    const longName = "a".repeat(4000);
+
+    const result = runCommand(ZAGI_BIN, ["fork", longName], undefined, true);
+
+    expect(result.output).toContain("too long");
+    expect(result.exitCode).toBe(1);
+  });
+});
