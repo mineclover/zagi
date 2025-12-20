@@ -38,11 +38,37 @@ git add .          # confirms what was staged
 git commit -m "x"  # shows commit stats
 ```
 
-### Prompt tracking
+### Easy worktrees
 
-Store the AI prompt that created a commit:
+zagi ships with a wrapper around worktrees called `fork`:
 
 ```bash
+# Create named forks for different approaches your agent could take
+git fork nodejs-based
+git fork bun-based
+
+# Work in each fork
+cd .forks/nodejs-based
+# ... make changes, commit ...
+
+cd .forks/bun-based
+# ... make changes, commit ...
+
+# Compare results, then pick the winner
+cd ../..
+git fork                    # list forks with commit counts
+git fork --pick bun-based   # apply to base
+
+# Clean up
+git fork --delete-all
+```
+
+### Prompt tracking
+
+Store the user prompt that created a commit:
+
+```bash
+export ZAGI_AGENT=claude-code # enforces a prompt is needed for commits
 git commit -m "Add feature" --prompt "Add a logout button to the header.."
 git log --prompts  # view prompts
 ```
