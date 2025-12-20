@@ -33,8 +33,8 @@ export function createFixtureRepo(): string {
   // Create directory
   mkdirSync(repoDir, { recursive: true });
 
-  // Initialize git repo
-  gitIn(repoDir, "init");
+  // Initialize git repo with explicit branch name
+  gitIn(repoDir, "init", "-b", "main");
   gitIn(repoDir, "config", "user.email", "test@example.com");
   gitIn(repoDir, "config", "user.name", "Test User");
 
