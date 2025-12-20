@@ -19,6 +19,9 @@ modified: 1 file
 untracked: 3 files
 ```
 
+Options:
+- `<path>...` - filter to specific paths (e.g. `git status src/`)
+
 ### git log
 
 Shows commit history, default 10 commits.
@@ -32,6 +35,11 @@ def456a (2025-01-14) Bob: Fix connection pool
 
 Options:
 - `-n <count>` - number of commits to show
+- `--author=<pattern>` - filter by author name or email
+- `--grep=<pattern>` - filter by commit message
+- `--since=<date>` - commits after date (e.g. "2025-01-01", "1 week ago")
+- `--until=<date>` - commits before date
+- `-- <path>...` - filter to commits affecting paths
 
 ### git diff
 
@@ -49,9 +57,10 @@ src/other.zig:10-15
 
 Options:
 - `--staged` - show staged changes
+- `--stat` - show diffstat (files changed, insertions, deletions)
+- `--name-only` - show only names of changed files
 - `<commit>` - diff against commit
 - `<commit>..<commit>` - diff between commits
-- `<commit>...<commit>` - diff since branches diverged
 - `-- <path>` - filter to specific paths
 
 ### git add
@@ -78,6 +87,51 @@ Options:
 - `-m <message>` - commit message (required)
 - `-a` - stage modified tracked files
 - `--amend` - amend previous commit
+- `--prompt <text>` - store AI prompt (see Agent features)
+
+## Agent features
+
+### git fork
+
+Manage parallel working copies for experimentation.
+
+```bash
+git fork feature-a       # create fork in .forks/feature-a/
+git fork                  # list forks with commit counts
+git fork --pick feature-a # apply fork's commits to base
+git fork --delete feature-a
+git fork --delete-all
+```
+
+Forks are git worktrees. The `.forks/` directory is auto-added to `.gitignore`.
+
+### --prompt
+
+Store the user prompt that created a commit:
+
+```bash
+git commit -m "Add feature" --prompt "Add a logout button to the header"
+git log --prompts  # view prompts in log output
+```
+
+Set `ZAGI_AGENT` to enforce prompt tracking:
+
+```bash
+export ZAGI_AGENT=claude-code
+git commit -m "x"  # error: --prompt required
+```
+
+### ZAGI_STRIP_COAUTHORS
+
+Remove `Co-Authored-By:` lines from commit messages:
+
+```bash
+export ZAGI_STRIP_COAUTHORS=1
+git commit -m "Add feature
+
+Co-Authored-By: Claude <claude@anthropic.com>"
+# commits as: "Add feature"
+```
 
 ## Passthrough
 
