@@ -1,0 +1,5 @@
+.data/
+node_modules/
+*.sqlite
+test/.test-data/
+test/.test-clones/
