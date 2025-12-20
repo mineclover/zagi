@@ -41,7 +41,31 @@ Set `ZAGI_AGENT` to enable prompt enforcement:
 export ZAGI_AGENT=claude-code
 ```
 
-When this is set, `git commit` will fail without `--prompt`, ensuring all AI-generated commits have their prompts recorded.
+When this is set:
+1. `git commit` will fail without `--prompt`, ensuring all AI-generated commits have their prompts recorded
+2. Destructive commands are blocked to prevent data loss
+
+### Blocked Commands (in agent mode)
+
+These commands cause unrecoverable data loss and are blocked when `ZAGI_AGENT` is set:
+
+| Command | Reason |
+|---------|--------|
+| `reset --hard` | Discards all uncommitted changes |
+| `checkout .` | Discards all working tree changes |
+| `clean -f/-fd/-fx` | Permanently deletes untracked files |
+| `restore .` | Discards all working tree changes |
+| `restore --worktree` | Discards working tree changes |
+| `push --force/-f` | Overwrites remote history |
+| `stash drop` | Permanently deletes stashed changes |
+| `stash clear` | Permanently deletes all stashes |
+| `branch -D` | Force deletes branch (even if not merged) |
+
+Safe alternatives:
+- `reset --soft` - keeps changes staged
+- `reset` (no flags) - keeps changes in working tree
+- `clean -n` - dry run, shows what would be deleted and ask user to delete
+- `branch -d` - only deletes if merged
 
 ## Flow
 

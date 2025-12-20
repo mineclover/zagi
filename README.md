@@ -7,7 +7,7 @@
 - 121 git compatible commands
 - ~50% smaller output that doesn't overflow context windows
 - 1.5-2x faster than git in all implemented commands
-- Agent friendly features like `fork` and `prompt`
+- Agent friendly features like `fork`, `prompt` and `guardrails`
 - Git passthrough for non implemented commands
 
 ## Installation
@@ -67,12 +67,19 @@ git fork --promote bun-based   # replace base with fork (discards base commits)
 git fork --delete-all
 ```
 
-### Prompt tracking
+### Agent mode
 
-Store the user prompt that created a commit:
+Set `ZAGI_AGENT` to enable agent-specific features:
 
 ```bash
-export ZAGI_AGENT=claude-code # enforces a prompt is needed for commits
+export ZAGI_AGENT=claude-code
+```
+
+This enables:
+- **Prompt tracking**: `git commit` requires `--prompt` to record the user request that created the commit
+- **Guardrails**: Blocks destructive commands (`reset --hard`, `checkout .`, `clean -f`, `push --force`) to prevent data loss
+
+```bash
 git commit -m "Add feature" --prompt "Add a logout button to the header.."
 git log --prompts  # view prompts
 ```
