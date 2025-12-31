@@ -70,7 +70,7 @@ pub fn run(allocator: std.mem.Allocator, args: [][:0]u8) git.Error!void {
     }
 
     // Check if prompt is required (when running as an AI agent)
-    if (std.posix.getenv("ZAGI_AGENT") != null and prompt == null) {
+    if (hasEnvVar(allocator, "ZAGI_AGENT") and prompt == null) {
         stdout.print("error: --prompt required (ZAGI_AGENT is set)\n", .{}) catch {};
         stdout.print("hint: use --prompt to record the prompt that created this commit\n", .{}) catch {};
         return git.Error.UsageError;
@@ -222,7 +222,7 @@ pub fn run(allocator: std.mem.Allocator, args: [][:0]u8) git.Error!void {
 
     // Strip co-authors if ZAGI_STRIP_COAUTHORS is set
     var stripped_message_buf: [4096]u8 = undefined;
-    if (std.posix.getenv("ZAGI_STRIP_COAUTHORS") != null) {
+    if (hasEnvVar(allocator, "ZAGI_STRIP_COAUTHORS")) {
         const stripped_len = stripCoAuthors(final_message, &stripped_message_buf);
         final_message = stripped_message_buf[0..stripped_len];
     }
@@ -400,6 +400,13 @@ fn isCoAuthorLine(line: []const u8) bool {
         const lower = if (ch >= 'A' and ch <= 'Z') ch + 32 else ch;
         if (lower != prefix[i]) return false;
     }
+    return true;
+}
+
+/// Check if an environment variable is set (cross-platform).
+fn hasEnvVar(allocator: std.mem.Allocator, name: []const u8) bool {
+    const value = std.process.getEnvVarOwned(allocator, name) catch return false;
+    allocator.free(value);
     return true;
 }
 

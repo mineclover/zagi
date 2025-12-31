@@ -27,6 +27,10 @@ zig build -Doptimize=ReleaseFast
 ./zig-out/bin/zagi alias  # set up the alias
 ```
 
+#### Windows
+
+Building on Windows requires **Developer Mode** enabled (Settings > Privacy & Security > For developers > Developer Mode). This is needed for libgit2 symlink creation during build.
+
 ## Usage
 
 Use git as normal:

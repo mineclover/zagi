@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const git = @import("git.zig");
 
 pub const help =
@@ -34,7 +35,7 @@ pub fn run(allocator: std.mem.Allocator, args: [][:0]u8) git.Error!void {
         }
     }
 
-    const shell = detectShell();
+    const shell = detectShell(allocator);
 
     if (print_only) {
         printInitInstructions(stdout, shell) catch return git.Error.WriteFailed;
@@ -45,8 +46,9 @@ pub fn run(allocator: std.mem.Allocator, args: [][:0]u8) git.Error!void {
     addToShellConfig(allocator, shell, stdout) catch return git.Error.WriteFailed;
 }
 
-fn detectShell() Shell {
-    const shell_path = std.posix.getenv("SHELL") orelse return .unknown;
+fn detectShell(allocator: std.mem.Allocator) Shell {
+    const shell_path = std.process.getEnvVarOwned(allocator, "SHELL") catch return .unknown;
+    defer allocator.free(shell_path);
 
     if (std.mem.endsWith(u8, shell_path, "/bash") or std.mem.eql(u8, shell_path, "bash")) {
         return .bash;
@@ -124,10 +126,11 @@ fn getZagiPath() []const u8 {
 }
 
 fn addToShellConfig(allocator: std.mem.Allocator, shell: Shell, writer: anytype) !void {
-    const home = std.posix.getenv("HOME") orelse {
+    const home = std.process.getEnvVarOwned(allocator, "HOME") catch {
         try writer.print("Could not determine HOME directory. Use --print to see the alias command.\n", .{});
         return;
     };
+    defer allocator.free(home);
 
     const config_path: ?[]const u8 = switch (shell) {
         .bash => blk: {

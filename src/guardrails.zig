@@ -185,8 +185,10 @@ fn hasArg(args: []const [:0]const u8, target: []const u8) bool {
 }
 
 /// Check if guardrails should be enforced.
-pub fn isAgentMode() bool {
-    return std.posix.getenv("ZAGI_AGENT") != null;
+pub fn isAgentMode(allocator: std.mem.Allocator) bool {
+    const value = std.process.getEnvVarOwned(allocator, "ZAGI_AGENT") catch return false;
+    allocator.free(value);
+    return true;
 }
 
 // Tests
