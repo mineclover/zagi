@@ -31,6 +31,24 @@ zig build -Doptimize=ReleaseFast
 
 Building on Windows requires **Developer Mode** enabled (Settings > Privacy & Security > For developers > Developer Mode). This is needed for libgit2 symlink creation during build.
 
+```powershell
+git clone https://github.com/mattzcarey/zagi.git
+cd zagi
+zig build -Doptimize=ReleaseFast
+```
+
+To set up `git` alias in PowerShell, add this to your profile (`$PROFILE`):
+
+```powershell
+# Create profile if it doesn't exist
+if (!(Test-Path -Path $PROFILE)) { New-Item -ItemType File -Path $PROFILE -Force }
+
+# Add zagi alias
+Add-Content -Path $PROFILE -Value "function git { C:\path\to\zagi.exe @args }"
+```
+
+Restart PowerShell after adding the alias.
+
 ## Usage
 
 Use git as normal:
